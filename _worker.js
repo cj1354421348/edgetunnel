@@ -1,4 +1,4 @@
-﻿const Version = '2026-08-11 14:45:22';
+const Version = '2026-08-11 14:45:22';
 let config_JSON, 缓存SOCKS5白名单 = null, 调试日志打印 = false;
 let SOCKS5白名单 = ['*tapecontent.net', '*cloudatacdn.com', '*loadshare.org', '*cdn-centaurus.com', 'scholar.google.com'];
 const Pages静态页面 = 'https://edt-pages.github.io';
@@ -135,15 +135,19 @@ export default {
 						}
 						return new Response(JSON.stringify({ success: false, data: [] }, null, 2), { status: 403, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
 					} else if (访问路径 === 'admin/check') {// 代理检查
-						const 代理协议 = ['socks5', 'http', 'https', 'turn', 'sstp'].find(类型 => url.searchParams.has(类型)) || null;
+						const 代理协议 = ['socks5', 'http', 'https', 'turn', 'sstp', 'vless'].find(类型 => url.searchParams.has(类型)) || null;
 						if (!代理协议) return new Response(JSON.stringify({ error: '缺少代理参数' }), { status: 400, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
 						const 代理参数 = url.searchParams.get(代理协议);
 						const startTime = Date.now();
 						let 检测代理响应;
 						try {
-							const checkParsed = await 获取SOCKS5账号(代理参数, 获取代理默认端口(代理协议));
-							const { username, password, hostname, port } = checkParsed;
-							const 完整代理参数 = username && password ? `${username}:${password}@${hostname}:${port}` : `${hostname}:${port}`;
+							const checkParsed = 代理协议 === 'vless'
+								? 获取VLESS账号(代理参数, 获取代理默认端口('vless'))
+								: await 获取SOCKS5账号(代理参数, 获取代理默认端口(代理协议));
+							const { username, password, hostname, port, uuid } = checkParsed;
+							const 完整代理参数 = 代理协议 === 'vless'
+								? `${uuid}@${hostname}:${port}`
+								: (username && password ? `${username}:${password}@${hostname}:${port}` : `${hostname}:${port}`);
 							try {
 								const 检测主机 = 'cloudflare.com', 检测端口 = 443, encoder = new TextEncoder(), decoder = new TextDecoder();
 								const TCP连接 = 创建请求TCP连接器(request);
@@ -151,13 +155,15 @@ export default {
 								try {
 									tcpSocket = 代理协议 === 'socks5'
 										? await socks5Connect(检测主机, 检测端口, new Uint8Array(0), TCP连接, checkParsed)
-										: 代理协议 === 'turn'
-											? await turnConnect(checkParsed, 检测主机, 检测端口, TCP连接)
-											: 代理协议 === 'sstp'
-												? await sstpConnect(checkParsed, 检测主机, 检测端口, TCP连接)
-												: (代理协议 === 'https' && isIPHostname(hostname)
-													? await httpsConnect(检测主机, 检测端口, new Uint8Array(0), TCP连接, checkParsed)
-													: await httpConnect(检测主机, 检测端口, new Uint8Array(0), 代理协议 === 'https', TCP连接, checkParsed));
+										: 代理协议 === 'vless'
+											? await vlessConnect(检测主机, 检测端口, new Uint8Array(0), TCP连接, checkParsed)
+											: 代理协议 === 'turn'
+												? await turnConnect(checkParsed, 检测主机, 检测端口, TCP连接)
+												: 代理协议 === 'sstp'
+													? await sstpConnect(checkParsed, 检测主机, 检测端口, TCP连接)
+													: (代理协议 === 'https' && isIPHostname(hostname)
+														? await httpsConnect(检测主机, 检测端口, new Uint8Array(0), TCP连接, checkParsed)
+														: await httpConnect(检测主机, 检测端口, new Uint8Array(0), 代理协议 === 'https', TCP连接, checkParsed));
 									if (!tcpSocket) throw new Error('无法连接到代理服务器');
 									tlsSocket = new TlsClient(tcpSocket, { serverName: 检测主机, insecure: true });
 									await tlsSocket.handshake();
@@ -423,11 +429,16 @@ export default {
 
 								let 完整节点路径 = config_JSON.完整节点路径;
 
-								const 链式代理匹配 = 节点备注.match(/\$(socks5|http|https|turn|sstp):\/\/([^#\s]+)/i);
+								const 链式代理匹配 = 节点备注.match(/\$(socks5|http|https|turn|sstp|vless):\/\/([^#\s]+)/i);
 								if (链式代理匹配) {
 									try {
 										const 代理协议 = 链式代理匹配[1].toLowerCase(), 代理参数 = 链式代理匹配[2];
-										const 链式代理数据 = { type: 代理协议, ...获取SOCKS5账号(代理参数, 获取代理默认端口(代理协议)) };
+										const 链式代理数据 = {
+											type: 代理协议,
+											...(代理协议 === 'vless'
+												? 获取VLESS账号(代理参数, 获取代理默认端口('vless'))
+												: 获取SOCKS5账号(代理参数, 获取代理默认端口(代理协议)))
+										};
 										完整节点路径 = `/video/${base64SecretEncode(JSON.stringify(链式代理数据), userID) + (config_JSON.启用0RTT ? '?ed=2560' : '')}`;
 										节点备注 = 节点备注.replace(链式代理匹配[0], '').trim() || 节点地址;
 									} catch (error) {
@@ -2374,6 +2385,9 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
 				if (使用木马反代) {
 					log(`[木马反代] 代理到: ${host}:${portNum}`);
 					newSocket = await 连接木马反代(本次首包数据, TCP连接, 木马反代目标);
+				} else if (ctx代理类型 === 'vless') {
+					log(`[VLESS代理] 代理到: ${host}:${portNum}`);
+					newSocket = await vlessConnect(host, portNum, 本次首包数据, TCP连接, ctx代理参数);
 				} else if (ctx代理类型 === 'socks5') {
 					log(`[SOCKS5代理] 代理到: ${host}:${portNum}`);
 					newSocket = await socks5Connect(host, portNum, 本次首包数据, TCP连接, ctx代理参数);
@@ -3130,7 +3144,137 @@ function 构造WS本地204响应(respHeader = null) {
 	return response;
 }
 
-///////////////////////////////////////////////////////SOCKS5/HTTP函数///////////////////////////////////////////////
+///////////////////////////////////////////////////////SOCKS5/HTTP/VLESS函数///////////////////////////////////////////////
+function parseIPv6ToBytes(ip) {
+	let full = String(ip || '').toLowerCase().replace(/^\[|\]$/g, '');
+	if (full.includes('::')) {
+		const parts = full.split('::');
+		const left = parts[0] ? parts[0].split(':') : [];
+		const right = parts[1] ? parts[1].split(':') : [];
+		const missing = 8 - (left.length + right.length);
+		full = [...left, ...Array(missing).fill('0'), ...right].join(':');
+	}
+	const segments = full.split(':');
+	if (segments.length !== 8) return null;
+	const bytes = new Uint8Array(16);
+	for (let i = 0; i < 8; i++) {
+		const val = parseInt(segments[i] || '0', 16);
+		if (isNaN(val) || val < 0 || val > 0xffff) return null;
+		bytes[i * 2] = val >> 8;
+		bytes[i * 2 + 1] = val & 0xff;
+	}
+	return bytes;
+}
+
+function 构造VLESS出站首包(targetHost, targetPort, uuid, isUDP = false, rawData = null) {
+	const uuidBytes = 获取UUID字节(uuid);
+	if (!uuidBytes) throw new Error('无效的 VLESS UUID');
+	const host = stripIPv6Brackets(targetHost);
+	let addrType, addrBytes;
+	if (isIPv4(host)) {
+		addrType = 1;
+		addrBytes = new Uint8Array(host.split('.').map(Number));
+	} else if (host.includes(':')) {
+		const ipv6 = parseIPv6ToBytes(host);
+		if (ipv6) {
+			addrType = 3;
+			addrBytes = ipv6;
+		} else {
+			addrType = 2;
+			const domainBytes = textEncoder.encode(host);
+			addrBytes = new Uint8Array(1 + domainBytes.length);
+			addrBytes[0] = domainBytes.length;
+			addrBytes.set(domainBytes, 1);
+		}
+	} else {
+		addrType = 2;
+		const domainBytes = textEncoder.encode(host);
+		addrBytes = new Uint8Array(1 + domainBytes.length);
+		addrBytes[0] = domainBytes.length;
+		addrBytes.set(domainBytes, 1);
+	}
+	const payload = 有效数据长度(rawData) > 0 ? 数据转Uint8Array(rawData) : new Uint8Array(0);
+	const headerLen = 1 + 16 + 1 + 1 + 2 + 1 + addrBytes.byteLength;
+	const frame = new Uint8Array(headerLen + payload.byteLength);
+	frame[0] = 0x00; // version
+	frame.set(uuidBytes, 1);
+	frame[17] = 0x00; // addon length
+	frame[18] = isUDP ? 0x02 : 0x01; // command (1=TCP, 2=UDP)
+	frame[19] = (targetPort >> 8) & 0xff;
+	frame[20] = targetPort & 0xff;
+	frame[21] = addrType;
+	frame.set(addrBytes, 22);
+	if (payload.byteLength > 0) frame.set(payload, headerLen);
+	return frame;
+}
+
+async function vlessConnect(targetHost, targetPort, initialData, TCP连接, vlessParams) {
+	const { uuid, hostname, port, security, type, path, sni, hostHeader } = vlessParams || {};
+	if (!uuid || !hostname || !port) throw new Error('VLESS 连接参数不完整 (缺少 UUID, hostname 或 port)');
+	const isTLS = security === 'tls' || String(port) === '443';
+	const isWS = String(type || '').toLowerCase() === 'ws';
+	const serverHost = stripIPv6Brackets(hostname);
+	const serverPort = Number(port) || (isTLS ? 443 : 80);
+	const socket = isTLS
+		? TCP连接({ hostname: serverHost, port: serverPort }, { secureTransport: 'on', allowHalfOpen: false })
+		: TCP连接({ hostname: serverHost, port: serverPort });
+	const writer = socket.writable.getWriter();
+	const reader = socket.readable.getReader();
+	try {
+		if (isTLS && socket.opened) await socket.opened;
+		if (isWS) {
+			const wsPath = path ? (path.startsWith('/') ? path : '/' + path) : '/';
+			const wsHost = hostHeader || sni || serverHost;
+			const secKey = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+			const wsHandshake = textEncoder.encode(
+				`GET ${wsPath} HTTP/1.1\r\n` +
+				`Host: ${wsHost}\r\n` +
+				`Upgrade: websocket\r\n` +
+				`Connection: Upgrade\r\n` +
+				`Sec-WebSocket-Key: ${secKey}\r\n` +
+				`Sec-WebSocket-Version: 13\r\n\r\n`
+			);
+			await writer.write(wsHandshake);
+			let headerBuf = new Uint8Array(0), headerEnd = -1;
+			while (headerEnd === -1 && headerBuf.length < 8192) {
+				const { done, value } = await reader.read();
+				if (done || !value) throw new Error('VLESS WebSocket 握手时远端关闭连接');
+				headerBuf = 拼接字节数据(headerBuf, value);
+				const crlfcrlf = headerBuf.findIndex((_, i) => i < headerBuf.length - 3 && headerBuf[i] === 0x0d && headerBuf[i + 1] === 0x0a && headerBuf[i + 2] === 0x0d && headerBuf[i + 3] === 0x0a);
+				if (crlfcrlf !== -1) headerEnd = crlfcrlf + 4;
+			}
+			if (headerEnd === -1) throw new Error('VLESS WebSocket 响应头无效或过长');
+			const statusLine = textDecoder.decode(headerBuf.slice(0, headerEnd)).split('\r\n')[0];
+			if (!/HTTP\/\d(?:\.\d)?\s+101/i.test(statusLine)) throw new Error(`VLESS WebSocket 握手失败: ${statusLine}`);
+			const extraData = headerBuf.length > headerEnd ? headerBuf.subarray(headerEnd) : null;
+			const vlessFrame = 构造VLESS出站首包(targetHost, targetPort, uuid, false, initialData);
+			await writer.write(vlessFrame);
+			writer.releaseLock();
+			reader.releaseLock();
+			if (extraData && extraData.byteLength > 0) {
+				const { readable, writable } = new TransformStream();
+				const tw = writable.getWriter();
+				await tw.write(extraData);
+				tw.releaseLock();
+				socket.readable.pipeTo(writable).catch(() => { });
+				return { readable, writable: socket.writable, closed: socket.closed, close: () => socket.close() };
+			}
+			return socket;
+		} else {
+			const vlessFrame = 构造VLESS出站首包(targetHost, targetPort, uuid, false, initialData);
+			await writer.write(vlessFrame);
+			writer.releaseLock();
+			reader.releaseLock();
+			return socket;
+		}
+	} catch (error) {
+		try { writer.releaseLock() } catch (e) { }
+		try { reader.releaseLock() } catch (e) { }
+		try { socket.close() } catch (e) { }
+		throw error;
+	}
+}
+
 async function socks5Connect(targetHost, targetPort, initialData, TCP连接, parsedSocks5) {
 	const { username, password, hostname, port } = parsedSocks5 || {};
 	const socket = TCP连接({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
@@ -6176,19 +6320,33 @@ async function 反代参数获取(url, uuid, 默认反代IP = '', 默认反代�
 		try {
 			const 链式代理明文 = base64SecretDecode(链式代理路径匹配[1].replace(/\/+$/, ''), uuid);
 			const { type, ...链式代理地址 } = JSON.parse(链式代理明文);
-			if (!type || !反代协议默认端口[String(type).toLowerCase()]) throw new Error('链式代理类型无效');
+			const 代理类型 = String(type || '').toLowerCase();
+			if (!代理类型 || !反代协议默认端口[代理类型]) throw new Error('链式代理类型无效');
 			if (!链式代理地址.hostname || !链式代理地址.port) throw new Error('链式代理地址缺少 hostname 或 port');
 			我的SOCKS5账号 = '';
 			反代IP = '链式代理';
 			启用反代兜底 = false;
 			启用SOCKS5全局反代 = true;
-			启用SOCKS5反代 = String(type).toLowerCase();
-			parsedSocks5Address = {
-				username: 链式代理地址.username,
-				password: 链式代理地址.password,
-				hostname: 链式代理地址.hostname,
-				port: Number(链式代理地址.port)
-			};
+			启用SOCKS5反代 = 代理类型;
+			if (代理类型 === 'vless') {
+				parsedSocks5Address = {
+					uuid: 链式代理地址.uuid || 链式代理地址.username,
+					hostname: 链式代理地址.hostname,
+					port: Number(链式代理地址.port),
+					security: 链式代理地址.security || (Number(链式代理地址.port) === 443 ? 'tls' : 'none'),
+					type: 链式代理地址.type || 'ws',
+					path: 链式代理地址.path || '/',
+					sni: 链式代理地址.sni || 链式代理地址.hostname,
+					hostHeader: 链式代理地址.hostHeader || 链式代理地址.hostname
+				};
+			} else {
+				parsedSocks5Address = {
+					username: 链式代理地址.username,
+					password: 链式代理地址.password,
+					hostname: 链式代理地址.hostname,
+					port: Number(链式代理地址.port)
+				};
+			}
 			if (isNaN(parsedSocks5Address.port)) throw new Error('链式代理端口无效');
 			保存快照();
 			return 反代上下文;
@@ -6197,16 +6355,17 @@ async function 反代参数获取(url, uuid, 默认反代IP = '', 默认反代�
 		}
 	}
 
-	我的SOCKS5账号 = searchParams.get('socks5') || searchParams.get('http') || searchParams.get('https') || searchParams.get('turn') || searchParams.get('sstp') || null;
+	我的SOCKS5账号 = searchParams.get('socks5') || searchParams.get('http') || searchParams.get('https') || searchParams.get('turn') || searchParams.get('sstp') || searchParams.get('vless') || null;
 	启用SOCKS5全局反代 = searchParams.has('globalproxy');
 	if (searchParams.get('socks5')) 启用SOCKS5反代 = 'socks5';
 	else if (searchParams.get('http')) 启用SOCKS5反代 = 'http';
 	else if (searchParams.get('https')) 启用SOCKS5反代 = 'https';
 	else if (searchParams.get('turn')) 启用SOCKS5反代 = 'turn';
 	else if (searchParams.get('sstp')) 启用SOCKS5反代 = 'sstp';
+	else if (searchParams.get('vless')) 启用SOCKS5反代 = 'vless';
 
 	const 解析代理URL = (值, 强制全局 = true) => {
-		const 匹配 = /^(socks5|http|https|turn|sstp):\/\/(.+)$/i.exec(值 || '');
+		const 匹配 = /^(socks5|http|https|turn|sstp|vless):\/\/(.+)$/i.exec(值 || '');
 		if (!匹配) return false;
 		启用SOCKS5反代 = 匹配[1].toLowerCase();
 		我的SOCKS5账号 = 匹配[2].split('/')[0];
@@ -6249,16 +6408,16 @@ async function 反代参数获取(url, uuid, 默认反代IP = '', 默认反代�
 			return 反代上下文;
 		}
 	} else {
-		let 匹配 = /\/(socks5?|http|https|turn|sstp):\/?\/?([^/?#\s]+)/i.exec(pathname);
+		let 匹配 = /\/(socks5?|http|https|turn|sstp|vless):\/?\/?([^/?#\s]+)/i.exec(pathname);
 		if (匹配) {
 			const 类型 = 匹配[1].toLowerCase();
 			启用SOCKS5反代 = 类型 === 'sock' || 类型 === 'socks' ? 'socks5' : 类型;
 			我的SOCKS5账号 = 匹配[2].split('/')[0];
 			启用SOCKS5全局反代 = true;
-		} else if ((匹配 = /\/(g?s5|socks5|g?http|g?https|g?turn|g?sstp)=([^/?#\s]+)/i.exec(pathname))) {
+		} else if ((匹配 = /\/(g?s5|socks5|g?http|g?https|g?turn|g?sstp|g?vless)=([^/?#\s]+)/i.exec(pathname))) {
 			const 类型 = 匹配[1].toLowerCase();
 			我的SOCKS5账号 = 匹配[2].split('/')[0];
-			启用SOCKS5反代 = 类型.includes('sstp') ? 'sstp' : (类型.includes('turn') ? 'turn' : (类型.includes('https') ? 'https' : (类型.includes('http') ? 'http' : 'socks5')));
+			启用SOCKS5反代 = 类型.includes('vless') ? 'vless' : (类型.includes('sstp') ? 'sstp' : (类型.includes('turn') ? 'turn' : (类型.includes('https') ? 'https' : (类型.includes('http') ? 'http' : 'socks5'))));
 			if (类型.startsWith('g')) 启用SOCKS5全局反代 = true;
 		} else if ((匹配 = /\/(proxyip[.=]|pyip=|ip=)([^?#\s]+)/.exec(pathLower))) {
 			const 路径反代值 = 提取路径值(匹配[2]);
@@ -6277,24 +6436,68 @@ async function 反代参数获取(url, uuid, 默认反代IP = '', 默认反代�
 	}
 
 	try {
-		parsedSocks5Address = await 获取SOCKS5账号(我的SOCKS5账号, 获取代理默认端口(启用SOCKS5反代));
+		parsedSocks5Address = 启用SOCKS5反代 === 'vless'
+			? 获取VLESS账号(我的SOCKS5账号, 获取代理默认端口('vless'))
+			: await 获取SOCKS5账号(我的SOCKS5账号, 获取代理默认端口(启用SOCKS5反代));
 		if (searchParams.get('socks5')) 启用SOCKS5反代 = 'socks5';
 		else if (searchParams.get('http')) 启用SOCKS5反代 = 'http';
 		else if (searchParams.get('https')) 启用SOCKS5反代 = 'https';
 		else if (searchParams.get('turn')) 启用SOCKS5反代 = 'turn';
 		else if (searchParams.get('sstp')) 启用SOCKS5反代 = 'sstp';
+		else if (searchParams.get('vless')) 启用SOCKS5反代 = 'vless';
 		else 启用SOCKS5反代 = 启用SOCKS5反代 || 'socks5';
 	} catch (err) {
-		console.error('解析SOCKS5地址失败:', err.message);
+		console.error('解析SOCKS5/VLESS地址失败:', err.message);
 		启用SOCKS5反代 = null;
 	}
 	保存快照();
 	return 反代上下文;
 }
 
-const 反代协议默认端口 = { socks5: 1080, http: 80, https: 443, turn: 3478, sstp: 443 };
+const 反代协议默认端口 = { socks5: 1080, http: 80, https: 443, turn: 3478, sstp: 443, vless: 443 };
 function 获取代理默认端口(类型) {
 	return 反代协议默认端口[String(类型 || '').toLowerCase()] || 80;
+}
+
+function 获取VLESS账号(address, 默认端口 = 443) {
+	address = String(address || '').trim().replace(/^vless:\/\//i, '').split('#')[0].trim();
+	const queryParams = {};
+	const qIndex = address.indexOf('?');
+	if (qIndex !== -1) {
+		try {
+			const search = new URLSearchParams(address.slice(qIndex + 1));
+			for (const [k, v] of search.entries()) queryParams[k.toLowerCase()] = v;
+		} catch (e) { }
+		address = address.slice(0, qIndex);
+	}
+	const atIndex = address.lastIndexOf('@');
+	const uuid = atIndex === -1 ? '' : address.slice(0, atIndex).trim();
+	const hostPart = (atIndex === -1 ? address : address.slice(atIndex + 1)).split('/')[0];
+	if (!uuid) throw new Error('无效的 VLESS 地址格式：缺少 UUID');
+
+	let hostname = hostPart, port = 默认端口;
+	if (hostPart.includes(']:')) {
+		const [ipv6Host, ipv6Port = ''] = hostPart.split(']:');
+		hostname = ipv6Host + ']';
+		port = Number(ipv6Port.replace(/[^\d]/g, ''));
+	} else if (!hostPart.startsWith('[')) {
+		const parts = hostPart.split(':');
+		if (parts.length === 2) {
+			hostname = parts[0];
+			port = Number(parts[1].replace(/[^\d]/g, ''));
+		}
+	}
+	if (isNaN(port)) throw new Error('无效的 VLESS 地址格式：端口号必须是数字');
+	return {
+		uuid,
+		hostname,
+		port,
+		security: queryParams.security || (port === 443 ? 'tls' : 'none'),
+		type: queryParams.type || 'ws',
+		path: queryParams.path ? decodeURIComponent(queryParams.path) : '/',
+		sni: queryParams.sni || queryParams.host || hostname,
+		hostHeader: queryParams.host || queryParams.sni || hostname
+	};
 }
 
 const SOCKS5账号Base64正则 = /^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i, IPv6方括号正则 = /^\[.*\]$/;
