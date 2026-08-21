@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="robots" content="noindex, nofollow">
+	<title>未绑定 KV 命名空间 - EdgeTunnel</title>
+	<style>
+		:root {
+			--card-bg: rgba(30, 41, 59, 0.9);
+			--accent: #f59e0b;
+			--text-main: #f8fafc;
+			--text-sub: #94a3b8;
+			--border: rgba(255, 255, 255, 0.1);
+		}
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+			min-height: 100vh;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			background: radial-gradient(circle at top, #1e293b 0%, #0f172a 100%);
+			color: var(--text-main);
+			padding: 20px;
+		}
+		.card {
+			background: var(--card-bg);
+			border: 1px solid var(--border);
+			backdrop-filter: blur(20px);
+			padding: 40px;
+			border-radius: 20px;
+			width: 100%;
+			max-width: 480px;
+			box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+			text-align: center;
+		}
+		.icon {
+			width: 64px;
+			height: 64px;
+			margin: 0 auto 20px;
+			background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+			border-radius: 16px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			box-shadow: 0 10px 25px -5px rgba(245, 158, 11, 0.4);
+		}
+		.icon svg { width: 34px; height: 34px; fill: white; }
+		h1 { font-size: 22px; font-weight: 700; margin-bottom: 12px; }
+		p { font-size: 14px; color: var(--text-sub); line-height: 1.6; margin-bottom: 20px; text-align: left; }
+		.code-box {
+			background: rgba(15, 23, 42, 0.8);
+			border: 1px solid var(--border);
+			border-radius: 10px;
+			padding: 14px;
+			font-family: monospace;
+			font-size: 13px;
+			color: #38bdf8;
+			text-align: left;
+			margin-bottom: 24px;
+			word-break: break-all;
+		}
+	</style>
+</head>
+<body>
+	<div class="card">
+		<div class="icon">
+			<svg viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+		</div>
+		<h1>未绑定 KV 命名空间</h1>
+		<p>管理后台和自定义配置持久化需要绑定 Cloudflare KV 命名空间：</p>
+		<div class="code-box">变量名称 / 绑定名称: KV<br>KV 命名空间: 选择或创建一个 KV 命名空间</div>
+		<p>在 Cloudflare 控制台的「设置」->「函数」->「KV 命名空间绑定」中绑定变量名为 KV 的数据库即可。</p>
+	</div>
+</body>
+</html>

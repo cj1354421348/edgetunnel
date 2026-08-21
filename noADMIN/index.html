@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<meta name="robots" content="noindex, nofollow">
+	<title>未配置管理员密码 - EdgeTunnel</title>
+	<style>
+		:root {
+			--card-bg: rgba(30, 41, 59, 0.9);
+			--accent: #ef4444;
+			--text-main: #f8fafc;
+			--text-sub: #94a3b8;
+			--border: rgba(255, 255, 255, 0.1);
+		}
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+			min-height: 100vh;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			background: radial-gradient(circle at top, #1e293b 0%, #0f172a 100%);
+			color: var(--text-main);
+			padding: 20px;
+		}
+		.card {
+			background: var(--card-bg);
+			border: 1px solid var(--border);
+			backdrop-filter: blur(20px);
+			padding: 40px;
+			border-radius: 20px;
+			width: 100%;
+			max-width: 480px;
+			box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+			text-align: center;
+		}
+		.icon {
+			width: 64px;
+			height: 64px;
+			margin: 0 auto 20px;
+			background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+			border-radius: 16px;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			box-shadow: 0 10px 25px -5px rgba(239, 68, 68, 0.4);
+		}
+		.icon svg { width: 34px; height: 34px; fill: white; }
+		h1 { font-size: 22px; font-weight: 700; margin-bottom: 12px; }
+		p { font-size: 14px; color: var(--text-sub); line-height: 1.6; margin-bottom: 20px; text-align: left; }
+		.code-box {
+			background: rgba(15, 23, 42, 0.8);
+			border: 1px solid var(--border);
+			border-radius: 10px;
+			padding: 14px;
+			font-family: monospace;
+			font-size: 13px;
+			color: #38bdf8;
+			text-align: left;
+			margin-bottom: 24px;
+			word-break: break-all;
+		}
+	</style>
+</head>
+<body>
+	<div class="card">
+		<div class="icon">
+			<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+		</div>
+		<h1>未设置管理员密码 (ADMIN)</h1>
+		<p>为了保护你的管理面板安全，请在 Cloudflare 环境变量中添加管理密码变量：</p>
+		<div class="code-box">变量名称: ADMIN<br>变量内容: 你的自定义管理密码</div>
+		<p>添加环境变量后重新部署，即可通过该密码登录后台。</p>
+	</div>
+</body>
+</html>
