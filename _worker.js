@@ -202,9 +202,19 @@ export default {
 						}
 						return new Response(JSON.stringify({ success: false, data: [] }, null, 2), { status: 403, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
 					} else if (访问路径 === 'admin/check') {// 代理检查
-						const 代理协议 = ['socks5', 'http', 'https', 'turn', 'sstp', 'vless'].find(类型 => url.searchParams.has(类型)) || null;
+						let 代理协议 = ['vless', 'socks5', 'http', 'https', 'turn', 'sstp'].find(类型 => url.searchParams.has(类型)) || null;
 						if (!代理协议) return new Response(JSON.stringify({ error: '缺少代理参数' }), { status: 400, headers: { 'Content-Type': 'application/json;charset=utf-8' } });
-						const 代理参数 = url.searchParams.get(代理协议);
+						let 代理参数 = url.searchParams.get(代理协议);
+						if (代理参数) {
+							const 协议匹配 = /^(vless|socks5?|s5|https?|turn|sstp):\/\/(.+)$/i.exec(代理参数.trim());
+							if (协议匹配) {
+								const proto = 协议匹配[1].toLowerCase();
+								代理协议 = (proto === 's5' || proto === 'socks') ? 'socks5' : proto;
+								代理参数 = 协议匹配[2];
+							} else if (/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}@/.test(代理参数.trim())) {
+								代理协议 = 'vless';
+							}
+						}
 						const startTime = Date.now();
 						let 检测代理响应;
 						try {
@@ -3275,10 +3285,37 @@ function 构造VLESS出站首包(targetHost, targetPort, uuid, isUDP = false, ra
 	return frame;
 }
 
+function createVlessResponseTransform(initialBuffer = new Uint8Array(0)) {
+	let headerParsed = false;
+	let headerBuf = initialBuffer;
+	return new TransformStream({
+		transform(chunk, controller) {
+			if (headerParsed) {
+				controller.enqueue(chunk);
+				return;
+			}
+			headerBuf = 拼接字节数据(headerBuf, chunk);
+			if (headerBuf.length < 2) return;
+			const addonLen = headerBuf[1];
+			const headerTotalLen = 2 + addonLen;
+			if (headerBuf.length >= headerTotalLen) {
+				headerParsed = true;
+				const payload = headerBuf.subarray(headerTotalLen);
+				if (payload.byteLength > 0) {
+					controller.enqueue(payload);
+				}
+			}
+		}
+	});
+}
+
 async function vlessConnect(targetHost, targetPort, initialData, TCP连接, vlessParams) {
 	const { uuid, hostname, port, security, type, path, sni, hostHeader } = vlessParams || {};
 	if (!uuid || !hostname || !port) throw new Error('VLESS 连接参数不完整 (缺少 UUID, hostname 或 port)');
-	const isTLS = security === 'tls' || String(port) === '443';
+	if (String(security || '').toLowerCase() === 'reality') {
+		throw new Error('该节点为 VLESS-Reality 协议。Reality 需要客户端底层的 uTLS 指纹与 Curve25519/X25519 密码学握手，Cloudflare Worker 边缘运行时不支持 Reality 密码握手。请使用标准 VLESS+WS+TLS、VLESS+WS 或 SOCKS5 出站。');
+	}
+	const isTLS = security === 'tls' || (security !== 'none' && String(port) === '443');
 	const isWS = String(type || '').toLowerCase() === 'ws';
 	const serverHost = stripIPv6Brackets(hostname);
 	const serverPort = Number(port) || (isTLS ? 443 : 80);
@@ -3286,10 +3323,10 @@ async function vlessConnect(targetHost, targetPort, initialData, TCP连接, vles
 		? TCP连接({ hostname: serverHost, port: serverPort }, { secureTransport: 'on', allowHalfOpen: false })
 		: TCP连接({ hostname: serverHost, port: serverPort });
 	const writer = socket.writable.getWriter();
-	const reader = socket.readable.getReader();
 	try {
 		if (isTLS && socket.opened) await socket.opened;
 		if (isWS) {
+			const reader = socket.readable.getReader();
 			const wsPath = path ? (path.startsWith('/') ? path : '/' + path) : '/';
 			const wsHost = hostHeader || sni || serverHost;
 			const secKey = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
@@ -3313,31 +3350,32 @@ async function vlessConnect(targetHost, targetPort, initialData, TCP连接, vles
 			if (headerEnd === -1) throw new Error('VLESS WebSocket 响应头无效或过长');
 			const statusLine = textDecoder.decode(headerBuf.slice(0, headerEnd)).split('\r\n')[0];
 			if (!/HTTP\/\d(?:\.\d)?\s+101/i.test(statusLine)) throw new Error(`VLESS WebSocket 握手失败: ${statusLine}`);
-			const extraData = headerBuf.length > headerEnd ? headerBuf.subarray(headerEnd) : null;
+			
+			const leftover = headerBuf.length > headerEnd ? headerBuf.subarray(headerEnd) : new Uint8Array(0);
+			reader.releaseLock();
+			
 			const vlessFrame = 构造VLESS出站首包(targetHost, targetPort, uuid, false, initialData);
 			await writer.write(vlessFrame);
 			writer.releaseLock();
-			reader.releaseLock();
-			if (extraData && extraData.byteLength > 0) {
-				const { readable, writable } = new TransformStream();
-				const tw = writable.getWriter();
-				await tw.write(extraData);
-				tw.releaseLock();
-				socket.readable.pipeTo(writable).catch(() => { });
-				return { readable, writable: socket.writable, closed: socket.closed, close: () => socket.close() };
-			}
-			return socket;
+			
+			const transformer = createVlessResponseTransform(leftover);
+			const readable = socket.readable.pipeThrough(transformer);
+			return { readable, writable: socket.writable, closed: socket.closed, close: () => socket.close() };
 		} else {
 			const vlessFrame = 构造VLESS出站首包(targetHost, targetPort, uuid, false, initialData);
 			await writer.write(vlessFrame);
 			writer.releaseLock();
-			reader.releaseLock();
-			return socket;
+			
+			const transformer = createVlessResponseTransform();
+			const readable = socket.readable.pipeThrough(transformer);
+			return { readable, writable: socket.writable, closed: socket.closed, close: () => socket.close() };
 		}
 	} catch (error) {
 		try { writer.releaseLock() } catch (e) { }
-		try { reader.releaseLock() } catch (e) { }
 		try { socket.close() } catch (e) { }
+		if (error.message.includes('WritableStream has been closed') || error.message.includes('ReadableStream')) {
+			throw new Error(`远端节点主动断开了连接 (${hostname}:${port})。如果该节点为 Reality/Vision 协议，Cloudflare Worker 无法支持 Reality 密码握手。`);
+		}
 		throw error;
 	}
 }
@@ -6555,12 +6593,16 @@ function 获取VLESS账号(address, 默认端口 = 443) {
 		}
 	}
 	if (isNaN(port)) throw new Error('无效的 VLESS 地址格式：端口号必须是数字');
+	
+	const sec = (queryParams.security || '').toLowerCase();
+	const netType = (queryParams.type || queryParams.network || 'tcp').toLowerCase();
+	
 	return {
 		uuid,
 		hostname,
 		port,
-		security: queryParams.security || (port === 443 ? 'tls' : 'none'),
-		type: queryParams.type || 'ws',
+		security: sec || (String(port) === '443' ? 'tls' : 'none'),
+		type: netType,
 		path: queryParams.path ? decodeURIComponent(queryParams.path) : '/',
 		sni: queryParams.sni || queryParams.host || hostname,
 		hostHeader: queryParams.host || queryParams.sni || hostname
